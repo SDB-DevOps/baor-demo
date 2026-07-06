@@ -71,13 +71,12 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: Audit dependencies for known vulnerabilities
         run: pip-audit
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
       - name: Scan filesystem with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: trivy fs --severity HIGH,CRITICAL --exit-code 1 --no-progress .
 
   # ---------- Stage 4: build & push Docker image ----------
   docker:
@@ -115,9 +114,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
       - name: Scan built image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          severity: HIGH,CRITICAL
-          exit-code: "0"   # report only; set to 1 to block on image CVEs
+        # report only; change --exit-code to 1 to block on image CVEs
+        run: |
+          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress \
+            ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
