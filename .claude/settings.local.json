@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(ruff check *)",
+      "Bash(ruff format *)",
+      "Bash(mypy src *)",
+      "Bash(pytest)",
+      "Bash(pytest -q)",
+      "Bash(command -v docker)",
+      "Bash(docker build *)"
+    ]
+  }
+}
