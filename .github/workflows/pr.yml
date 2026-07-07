@@ -1,0 +1,14 @@
+name: PR Checks
+
+# Runs on every PR into a long-lived branch. Checks only — no image build.
+on:
+  pull_request:
+    branches: [dev, test, prod, main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-ci.yml

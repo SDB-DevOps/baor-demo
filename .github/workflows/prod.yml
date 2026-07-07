@@ -1,0 +1,36 @@
+name: Prod Pipeline
+
+# Push to prod -> CI, build the :prod image, then a MANUAL-APPROVAL deploy to production.
+on:
+  push:
+    branches: [prod]
+
+concurrency:
+  group: prod-${{ github.ref }}
+  cancel-in-progress: false   # never cancel an in-flight production run
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-ci.yml
+    with:
+      run-integration: true
+
+  build:
+    needs: ci
+    uses: ./.github/workflows/_reusable-docker.yml
+    with:
+      image-tag: prod
+      # Block the pipeline if the production image has HIGH/CRITICAL CVEs
+      scan-exit-code: "1"
+    secrets: inherit
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # The 'production' environment must have Required reviewers configured in
+    # Settings -> Environments, so this job pauses for manual approval.
+    environment: production
+    steps:
+      - name: Deploy to production
+        # TODO: replace with the real production deploy
+        run: echo "Deploying image :prod to production (approved)."

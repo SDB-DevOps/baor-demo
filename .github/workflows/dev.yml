@@ -1,0 +1,30 @@
+name: Dev Pipeline
+
+# Push to dev -> CI, build the :dev image, deploy to the development environment.
+on:
+  push:
+    branches: [dev]
+
+concurrency:
+  group: dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-ci.yml
+
+  build:
+    needs: ci
+    uses: ./.github/workflows/_reusable-docker.yml
+    with:
+      image-tag: dev
+    secrets: inherit
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Deploy to development
+        # TODO: replace with the real deploy (kubectl / helm / ssh / cloud CLI ...)
+        run: echo "Deploying image :dev to the development environment."

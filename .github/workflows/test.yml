@@ -1,0 +1,32 @@
+name: Test Pipeline
+
+# Push to test -> CI (with integration tests), build the :test image, deploy to test env.
+on:
+  push:
+    branches: [test]
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-ci.yml
+    with:
+      run-integration: true
+
+  build:
+    needs: ci
+    uses: ./.github/workflows/_reusable-docker.yml
+    with:
+      image-tag: test
+    secrets: inherit
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - name: Deploy to test
+        # TODO: replace with the real deploy to the test/staging environment
+        run: echo "Deploying image :test to the test environment."

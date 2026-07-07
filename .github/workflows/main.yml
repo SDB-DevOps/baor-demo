@@ -1,0 +1,27 @@
+name: Main / Release
+
+# main is the stable baseline (model B: prod and main are separate).
+#   - push to main   -> run CI to keep the baseline green
+#   - push a v* tag  -> CI + build a versioned release image (also tagged :latest)
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_reusable-ci.yml
+
+  release:
+    needs: ci
+    # Only build/publish a release image when a version tag is pushed
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/_reusable-docker.yml
+    with:
+      image-tag: ${{ github.ref_name }}   # e.g. v1.2.3
+      add-latest: true
+    secrets: inherit
