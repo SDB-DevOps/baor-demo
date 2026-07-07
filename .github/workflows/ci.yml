@@ -119,7 +119,9 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin
       - name: Scan built image with Trivy
+        # Container image names must be lowercase; ${{ env.IMAGE_NAME }} may contain
+        # uppercase (org/repo), so lowercase it and scan the :latest tag we just pushed.
         # report only; change --exit-code to 1 to block on image CVEs
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress \
-            ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          image="ghcr.io/$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')"
+          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress "${image}:latest"
