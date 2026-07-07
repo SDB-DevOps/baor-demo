@@ -59,7 +59,11 @@ jobs:
             | sh -s -- -b /usr/local/bin
       - name: Scan built image with Trivy
         # Image names must be lowercase; lowercase the repo then scan the tag we pushed.
+        # --ignore-unfixed: only fail on vulnerabilities that actually have a fix
+        # available, so the gate stays actionable instead of blocking on unpatchable
+        # upstream OS CVEs.
         run: |
           image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          trivy image --severity HIGH,CRITICAL --exit-code ${{ inputs.scan-exit-code }} \
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code ${{ inputs.scan-exit-code }} \
             --no-progress "${image}:${{ inputs.image-tag }}"

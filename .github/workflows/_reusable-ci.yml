@@ -71,7 +71,8 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin
       - name: Scan filesystem with Trivy
-        run: trivy fs --severity HIGH,CRITICAL --exit-code 1 --no-progress .
+        # --ignore-unfixed: only fail on vulnerabilities that have an available fix
+        run: trivy fs --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress .
 
   integration:
     name: Integration Tests

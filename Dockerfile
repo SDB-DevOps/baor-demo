@@ -20,6 +20,15 @@ WORKDIR /home/appuser
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /app/src ./src
 
+# The app has no runtime dependency on the build tooling; dropping pip/setuptools/
+# wheel removes their known CVEs and shrinks the image.
+RUN rm -rf /usr/local/lib/python3.11/site-packages/pip* \
+           /usr/local/lib/python3.11/site-packages/setuptools* \
+           /usr/local/lib/python3.11/site-packages/wheel* \
+           /usr/local/lib/python3.11/site-packages/pkg_resources \
+           /usr/local/lib/python3.11/site-packages/_distutils_hack \
+           /usr/local/bin/pip*
+
 ENV PYTHONPATH=/home/appuser/src \
     PYTHONUNBUFFERED=1
 
