@@ -22,11 +22,12 @@ jobs:
       image-tag: test
     secrets: inherit
 
+  # "Deploy" = write the new image digest into the GitOps config repo.
+  # Argo CD (test app, auto-sync) then rolls it out to the test cluster.
   deploy:
     needs: build
-    runs-on: ubuntu-latest
-    environment: test
-    steps:
-      - name: Deploy to test
-        # TODO: replace with the real deploy to the test/staging environment
-        run: echo "Deploying image :test to the test environment."
+    uses: ./.github/workflows/_reusable-bump.yml
+    with:
+      overlay: test
+      image-digest: ${{ needs.build.outputs.image-digest }}
+    secrets: inherit

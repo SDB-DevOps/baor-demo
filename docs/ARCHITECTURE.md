@@ -4,6 +4,7 @@
 
 - 应用侧文档见 [README.md](../README.md)
 - 分支模型与多环境流水线见 [BRANCHING.md](./BRANCHING.md)
+- CD 流程(Argo CD + GitOps)见 [CD.md](./CD.md)
 - 首次接入 GitHub 的操作步骤见 [SETUP.md](./SETUP.md)
 
 ---
@@ -20,8 +21,9 @@
 | 测试 | pytest + coverage(阈值 80%) |
 | 安全 | pip-audit(依赖)、Trivy(文件系统 + 镜像) |
 | 容器 | Docker 多阶段构建,非 root 运行 |
-| CI/CD 平台 | GitHub Actions(可复用工作流) |
+| CI 平台 | GitHub Actions(可复用工作流) |
 | 镜像仓库 | GitHub Container Registry(GHCR) |
+| CD / 部署 | Argo CD(GitOps 拉取式)+ Kustomize |
 
 ---
 
@@ -32,6 +34,7 @@ CICD_Demo_repo/
 ├── .github/workflows/          # CI/CD 流水线定义
 │   ├── _reusable-ci.yml        #   可复用:lint + test + security (+ 集成测试)
 │   ├── _reusable-docker.yml    #   可复用:构建镜像 → 推 GHCR → Trivy 扫描
+│   ├── _reusable-bump.yml      #   可复用:把镜像 digest 回写 GitOps 配置仓库
 │   ├── pr.yml                  #   入口:PR → 任意长期分支(只做检查)
 │   ├── dev.yml                 #   入口:push dev  → CI + 构建 :dev  + 部署
 │   ├── test.yml                #   入口:push test → CI(含集成)+ 构建 :test + 部署
@@ -47,6 +50,7 @@ CICD_Demo_repo/
 ├── docs/                       # 文档
 │   ├── ARCHITECTURE.md         #   本文件
 │   ├── BRANCHING.md            #   分支模型与多环境流水线
+│   ├── CD.md                   #   CD 流程(Argo CD + GitOps)
 │   └── SETUP.md                #   接入 GitHub 的操作步骤
 ├── Dockerfile                  # 多阶段镜像构建
 ├── .dockerignore
@@ -54,6 +58,8 @@ CICD_Demo_repo/
 ├── pyproject.toml              # 依赖 + 工具配置(ruff/mypy/pytest)
 └── README.md
 ```
+
+> **CI / CD 仓库分离**:上面是**应用代码仓库**(CI 侧)。CD 的 K8s 清单(Kustomize base + overlays + Argo CD Application)放在**独立的配置仓库 `baor-demo-config`**,由 Argo CD 监听。CI 只在构建镜像后把 digest 回写该配置仓库,详见 [CD.md](./CD.md)。
 
 ---
 
@@ -136,8 +142,14 @@ main = 受保护的稳定基线,打 v* tag 触发版本发布
    prod.yml ───┐
    main.yml ───┤  ┌──────────────────────┐
    dev.yml ────┼─>│ _reusable-docker.yml │   build → push GHCR → Trivy scan
-   test.yml ───┤  │  (workflow_call)     │   (镜像标签/扫描策略参数化)
-   prod.yml ───┘  └──────────────────────┘
+   test.yml ───┤  │  (workflow_call)     │   (镜像标签/扫描策略参数化,输出 digest)
+   prod.yml ───┘  └──────────┬───────────┘
+                             │ image digest
+   dev.yml ────┐             ▼
+   test.yml ───┼─> ┌──────────────────────┐
+   prod.yml ───┘   │ _reusable-bump.yml   │   kustomize set image → 提交 config 仓库
+                   │  (workflow_call)     │   (Argo CD 随后拉取同步 = 部署)
+                   └──────────────────────┘
 ```
 
 - **入口工作流**(`pr/dev/test/prod/main.yml`):由 push / PR / tag 事件触发,决定调用哪些可复用工作流、传什么参数(镜像标签、是否跑集成测试、扫描是否阻断)。
@@ -191,18 +203,23 @@ checkout → setup-buildx → 登录 GHCR → 生成标签(metadata-action)
    │
    └─ PR 合并(push 到环境分支)
           │
-          ├─ dev  ──> dev.yml  ──> CI ──> 构建 :dev  ──> 部署 development
-          ├─ test ──> test.yml ──> CI(含集成) ──> 构建 :test ──> 部署 test
-          └─ prod ──> prod.yml ──> CI ──> 构建 :prod ──┐
-                                                        │  CVE 通过
-                                                        ▼
-                                             等待人工审批(production 环境)
-                                                        │  批准
-                                                        ▼
-                                                   部署 production
+          ├─ dev  ──> dev.yml  ──> CI ──> 构建 :dev  ──> 回写 config 仓库 ──┐
+          ├─ test ──> test.yml ──> CI(含集成) ──> 构建 :test ──> 回写 ────┤
+          └─ prod ──> prod.yml ──> CI ──> 构建 :prod ──┐                     │
+                                                        │ CVE 通过            │
+                                                        ▼                     │
+                                             等待人工审批(production)         │
+                                                        │ 批准                │
+                                                        ▼                     │
+                                                   回写 config 仓库 ──────────┤
+                                                                              ▼
+                                                              Argo CD 检测 Git 变更 → 自动同步
+                                                              到 baor-demo-{dev,test,prod} 命名空间
 
   main 打 tag v* ──> main.yml ──> CI ──> 构建 :v1.2.3 + :latest(发布)
 ```
+
+> CD 的完整原理、App-of-Apps 结构、审批与回滚见 [CD.md](./CD.md)。
 
 ---
 
@@ -240,7 +257,7 @@ PR 阶段只跑质量门禁(轻、快),避免每个 PR 都产镜像;只有合入
 
 ## 10. 可演进方向
 
-- **部署实现**:当前各 `deploy` 步骤为 `echo` 占位符,可替换为 kubectl / Helm / SSH / 云 CLI 等真实部署。
+- **部署实现**:已由 **Argo CD(GitOps 拉取式)**实现 —— CI 把镜像 digest 回写配置仓库,Argo CD 自动同步到集群(见 [CD.md](./CD.md))。可进一步接入 Argo Rollouts 做金丝雀/蓝绿发布。
 - **更小攻击面**:基础镜像可换 `distroless`,进一步减少 OS 层 CVE。
 - **本地防线**:接入 pre-commit 钩子在提交前自动跑 ruff format,减少因格式问题导致的 CI 失败。
 - **发布增强**:tag 发布时自动生成 GitHub Release 与 changelog。

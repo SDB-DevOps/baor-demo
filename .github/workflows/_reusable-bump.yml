@@ -1,0 +1,85 @@
+name: Reusable GitOps Bump
+
+# Reusable workflow: write the freshly-built image digest into the GitOps config
+# repo's environment overlay and commit it. Argo CD watches that repo and syncs
+# the change to the cluster — this is the "deploy" step in a pull-based GitOps flow.
+#
+# Requires (configured in the APP repo):
+#   - vars.CONFIG_REPO          e.g. "my-org/baor-demo-config"
+#   - secrets.CONFIG_REPO_TOKEN a PAT / fine-grained token with write access to it
+# The built-in GITHUB_TOKEN cannot push to another repository, hence a dedicated token.
+on:
+  workflow_call:
+    inputs:
+      overlay:
+        description: "Target overlay directory under manifests/overlays (dev/test/prod)"
+        type: string
+        required: true
+      image-digest:
+        description: "Immutable image digest to pin, e.g. sha256:abc..."
+        type: string
+        required: true
+    secrets:
+      CONFIG_REPO_TOKEN:
+        description: "Token with write access to the GitOps config repo"
+        required: true
+
+jobs:
+  bump:
+    name: Bump ${{ inputs.overlay }} to new digest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check GitOps config repo is configured
+        id: guard
+        env:
+          CONFIG_REPO: ${{ vars.CONFIG_REPO }}
+        run: |
+          if [ -z "${CONFIG_REPO}" ]; then
+            echo "::warning::vars.CONFIG_REPO is not set — skipping GitOps bump. \
+            Configure the config repo to enable Argo CD deploys (see docs/CD.md)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out GitOps config repo
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CONFIG_REPO }}
+          token: ${{ secrets.CONFIG_REPO_TOKEN }}
+          path: config
+
+      - name: Install kustomize
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" \
+            | bash -s -- 5.4.3 /usr/local/bin
+
+      - name: Pin new image digest in the overlay
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: config/manifests/overlays/${{ inputs.overlay }}
+        env:
+          # Image names on GHCR must be lowercase.
+          IMAGE_REPO: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ inputs.image-digest }}
+        run: |
+          image_lower="$(echo "${IMAGE_REPO}" | tr '[:upper:]' '[:lower:]')"
+          kustomize edit set image "cicd-demo-app=${image_lower}@${DIGEST}"
+
+      - name: Commit & push to config repo
+        if: steps.guard.outputs.configured == 'true'
+        working-directory: config
+        env:
+          OVERLAY: ${{ inputs.overlay }}
+          DIGEST: ${{ inputs.image-digest }}
+          SRC_SHA: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No manifest change (digest already current) — nothing to deploy."
+            exit 0
+          fi
+          git commit -am "deploy(${OVERLAY}): ${DIGEST} (from ${GITHUB_REPOSITORY:-app}@${SRC_SHA})"
+          git push

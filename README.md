@@ -4,7 +4,10 @@
 
 - 架构与设计原理详解见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 分支模型与多环境流水线见 [docs/BRANCHING.md](docs/BRANCHING.md)
+- **CD 流程(Argo CD + GitOps)见 [docs/CD.md](docs/CD.md)**
 - 首次接入 GitHub 的操作步骤见 [docs/SETUP.md](docs/SETUP.md)
+
+> 本仓库是 **CI(应用代码)** 侧;**CD 的 K8s 清单单独放在配置仓库 `baor-demo-config`**(与本仓库分离)。CI 构建镜像后把 digest 回写配置仓库,Argo CD 拉取同步 = 部署。
 
 ## 项目结构
 
@@ -24,7 +27,7 @@
 ├── tests/                     # 单元测试
 │   ├── test_calculator.py
 │   └── test_main.py
-├── docs/                      # 架构 / 分支 / 接入文档
+├── docs/                      # 架构 / 分支 / CD / 接入文档
 ├── Dockerfile                 # 多阶段构建镜像(非 root 运行)
 ├── .dockerignore
 └── pyproject.toml             # 依赖 + 工具配置(ruff/mypy/pytest)
@@ -74,14 +77,16 @@ docker run --rm cicd-demo
 
 ### 各入口触发矩阵
 
-| 触发 | CI | 集成测试 | 构建镜像 | 镜像标签 | CVE 阻断 | 部署 |
+| 触发 | CI | 集成测试 | 构建镜像 | 镜像标签 | CVE 阻断 | 部署(Argo CD GitOps) |
 |------|:--:|:-------:|:--------:|----------|:-------:|------|
 | PR → dev/test/prod/main | ✅ | ❌ | ❌ | —— | —— | —— |
-| push `dev` | ✅ | ❌ | ✅ | `dev`, `dev-<sha>` | 否 | development(自动) |
-| push `test` | ✅ | ✅ | ✅ | `test`, `test-<sha>` | 否 | test(自动) |
-| push `prod` | ✅ | ✅ | ✅ | `prod`, `prod-<sha>` | **是** | production(**人工审批**) |
+| push `dev` | ✅ | ❌ | ✅ | `dev`, `dev-<sha>` | 否 | 回写 overlay → dev 自动同步 |
+| push `test` | ✅ | ✅ | ✅ | `test`, `test-<sha>` | 否 | 回写 overlay → test 自动同步 |
+| push `prod` | ✅ | ✅ | ✅ | `prod`, `prod-<sha>` | **是** | **人工审批** → 回写 → prod 同步 |
 | push `main` | ✅ | ❌ | ❌ | —— | —— | —— |
 | tag `v*` | ✅ | ❌ | ✅ | `v1.2.3`, `latest` | 否 | (发布) |
+
+> 部署采用**拉取式 GitOps**:CI 把新镜像 digest 回写到 GitOps 配置仓库,集群内的 Argo CD 检测到变更后自动同步。详见 [docs/CD.md](docs/CD.md)。
 
 ## 建议的分支保护规则
 

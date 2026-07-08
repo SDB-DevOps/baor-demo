@@ -24,13 +24,24 @@ jobs:
       scan-exit-code: "1"
     secrets: inherit
 
-  deploy:
+  # Manual approval gate. The 'production' environment must have Required
+  # reviewers configured in Settings -> Environments, so this job pauses until
+  # a human approves — BEFORE any change reaches the GitOps repo.
+  approval:
     needs: build
     runs-on: ubuntu-latest
-    # The 'production' environment must have Required reviewers configured in
-    # Settings -> Environments, so this job pauses for manual approval.
     environment: production
     steps:
-      - name: Deploy to production
-        # TODO: replace with the real production deploy
-        run: echo "Deploying image :prod to production (approved)."
+      - name: Approve production promotion
+        run: echo "Approved — promoting the :prod image digest to the GitOps repo."
+
+  # After approval, write the digest into the config repo. Argo CD (prod app)
+  # then syncs it to production. `needs: build` is kept so the digest output is
+  # in scope; `needs: approval` enforces the gate.
+  deploy:
+    needs: [build, approval]
+    uses: ./.github/workflows/_reusable-bump.yml
+    with:
+      overlay: prod
+      image-digest: ${{ needs.build.outputs.image-digest }}
+    secrets: inherit

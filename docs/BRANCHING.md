@@ -24,21 +24,24 @@ main = 受保护的稳定基线,发布 tag(v*)的来源
 | 文件 | 触发 | 作用 |
 |------|------|------|
 | `_reusable-ci.yml` | 被调用 | lint + test + security(+ 可选集成测试) |
-| `_reusable-docker.yml` | 被调用 | 构建镜像 → 推 GHCR → Trivy 扫描(标签参数化) |
+| `_reusable-docker.yml` | 被调用 | 构建镜像 → 推 GHCR → Trivy 扫描(标签参数化,输出 digest) |
+| `_reusable-bump.yml` | 被调用 | 把镜像 digest 回写 GitOps 配置仓库(Argo CD 随后同步 = 部署) |
 | `pr.yml` | PR → 任意长期分支 | 只跑 CI(门禁) |
-| `dev.yml` | push `dev` | CI → 构建 `:dev` → 部署 dev |
-| `test.yml` | push `test` | CI(含集成) → 构建 `:test` → 部署 test |
-| `prod.yml` | push `prod` | CI → 构建 `:prod`(CVE 阻断) → **审批**部署生产 |
+| `dev.yml` | push `dev` | CI → 构建 `:dev` → 回写 dev overlay |
+| `test.yml` | push `test` | CI(含集成) → 构建 `:test` → 回写 test overlay |
+| `prod.yml` | push `prod` | CI → 构建 `:prod`(CVE 阻断) → **审批** → 回写 prod overlay |
 | `main.yml` | push `main` / tag `v*` | main:跑 CI;tag:构建 `:v1.2.3` + `:latest` |
+
+> 部署走 **Argo CD 拉取式 GitOps**:回写配置仓库后由集群内 Argo CD 自动同步,详见 [CD.md](./CD.md)。
 
 ## 触发矩阵
 
-| 触发 | CI 检查 | 集成测试 | 构建镜像 | 镜像标签 | 部署 |
+| 触发 | CI 检查 | 集成测试 | 构建镜像 | 镜像标签 | 部署(Argo CD) |
 |------|:------:|:--------:|:--------:|----------|------|
 | PR → dev/test/prod/main | ✅ | ❌ | ❌ | —— | —— |
-| push `dev` | ✅ | ❌ | ✅ | `dev`, `dev-<sha>` | dev(自动) |
-| push `test` | ✅ | ✅ | ✅ | `test`, `test-<sha>` | test(自动) |
-| push `prod` | ✅ | ✅ | ✅ | `prod`, `prod-<sha>` | 生产(**审批**) |
+| push `dev` | ✅ | ❌ | ✅ | `dev`, `dev-<sha>` | 回写 → dev 自动同步 |
+| push `test` | ✅ | ✅ | ✅ | `test`, `test-<sha>` | 回写 → test 自动同步 |
+| push `prod` | ✅ | ✅ | ✅ | `prod`, `prod-<sha>` | **审批** → 回写 → prod 同步 |
 | push `main` | ✅ | ❌ | ❌ | —— | —— |
 | tag `v*` | ✅ | ❌ | ✅ | `v1.2.3`, `latest` | (发布) |
 

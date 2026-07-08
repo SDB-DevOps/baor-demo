@@ -17,6 +17,10 @@ on:
         description: "Trivy exit code on HIGH/CRITICAL findings: '0' report-only, '1' block"
         type: string
         default: "0"
+    outputs:
+      image-digest:
+        description: "Immutable digest (sha256:...) of the pushed image, for GitOps promotion"
+        value: ${{ jobs.docker.outputs.image-digest }}
 
 jobs:
   docker:
@@ -25,6 +29,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -45,6 +51,7 @@ jobs:
             type=sha,prefix=${{ inputs.image-tag }}-,format=short
             type=raw,value=latest,enable=${{ inputs.add-latest }}
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
