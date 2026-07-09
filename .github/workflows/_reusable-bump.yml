@@ -50,11 +50,17 @@ jobs:
           token: ${{ secrets.CONFIG_REPO_TOKEN }}
           path: config
 
-      - name: Install kustomize
+      - name: Ensure kustomize is available
         if: steps.guard.outputs.configured == 'true'
         run: |
-          curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" \
-            | bash -s -- 5.4.3 /usr/local/bin
+          # GitHub-hosted runners already ship kustomize at /usr/local/bin.
+          # The install script refuses to overwrite it, so only install if missing.
+          if command -v kustomize >/dev/null 2>&1; then
+            echo "kustomize already present: $(kustomize version)"
+          else
+            curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" \
+              | bash -s -- 5.4.3 /usr/local/bin
+          fi
 
       - name: Pin new image digest in the overlay
         if: steps.guard.outputs.configured == 'true'
