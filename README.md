@@ -4,7 +4,7 @@
 
 - 架构与设计原理详解见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 分支模型与多环境流水线见 [docs/BRANCHING.md](docs/BRANCHING.md)
-- **CD 流程(Argo CD + GitOps)见 [docs/CD.md](docs/CD.md)**
+- **CD 流程(Argo CD + GitOps)见 [docs/CD.md](docs/CD.md)**,从零跑通的实操 + 踩坑见 [docs/CD-RUNBOOK.md](docs/CD-RUNBOOK.md)
 - 首次接入 GitHub 的操作步骤见 [docs/SETUP.md](docs/SETUP.md)
 
 > 本仓库是 **CI(应用代码)** 侧;**CD 的 K8s 清单单独放在配置仓库 `baor-demo-config`**(与本仓库分离)。CI 构建镜像后把 digest 回写配置仓库,Argo CD 拉取同步 = 部署。

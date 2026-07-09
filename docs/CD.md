@@ -4,6 +4,7 @@
 
 - CI 部分见 [README.md](../README.md) 与 [ARCHITECTURE.md](./ARCHITECTURE.md)
 - 分支模型见 [BRANCHING.md](./BRANCHING.md)
+- **从零跑通的实操记录 + 踩坑排错见 [CD-RUNBOOK.md](./CD-RUNBOOK.md)**
 - K8s 清单在**独立的配置仓库** `baor-demo-config`(与本仓库分离),见其 [`README.md`](../../baor-demo-config/README.md)
 
 ---
