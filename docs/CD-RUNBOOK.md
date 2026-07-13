@@ -166,6 +166,55 @@ kubectl create secret docker-registry ghcr-pull -n baor-demo-dev \
 
 ---
 
+## 蓝绿部署实操(Argo Rollouts)
+
+> 工作负载已从批处理 CronJob 改为**常驻 HTTP 服务**(`app.server`,`:8000`,`/healthz`),
+> 并用 `Rollout` 替换 Deployment。dev/test 自动切换,prod 需人工 promote。原理见 [CD.md](./CD.md) §7。
+
+### 1. 集群装 Argo Rollouts(一次性)
+```bash
+kubectl create namespace argo-rollouts
+kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+kubectl -n argo-rollouts rollout status deploy/argo-rollouts
+
+# 安装 kubectl 插件(用于 get/promote/undo)
+# 见 https://argoproj.github.io/argo-rollouts/installation/#kubectl-plugin-installation
+```
+
+### 2. 看蓝绿状态
+```bash
+kubectl argo rollouts get rollout cicd-demo -n baor-demo-prod --watch
+# 关注:ActiveService 指向哪个 RS、preview 上的新 RS 是否 Healthy、是否 Paused 等 promote
+```
+
+### 3. 在 preview 上验证新版,再晋升
+```bash
+# 预览新版(green)
+kubectl port-forward svc/cicd-demo-preview -n baor-demo-prod 9000:80
+curl http://localhost:9000/healthz     # version 应为新版
+# 正式流量(blue)对比
+kubectl port-forward svc/cicd-demo-active -n baor-demo-prod 9001:80
+curl http://localhost:9001/healthz     # version 仍是旧版
+
+# 验证没问题 → 晋升(active 切到 green)
+kubectl argo rollouts promote cicd-demo -n baor-demo-prod
+```
+
+### 4. 回滚
+```bash
+kubectl argo rollouts undo cicd-demo -n baor-demo-prod
+# 或 GitOps:config 仓库 git revert 那次 deploy(prod) 提交并 push
+```
+
+### 坑 11:Rollout 一直 Degraded / 不 promote
+- prod 的 `autoPromotionEnabled=false`,所以**停在 preview 等人工 promote 是正常的**(Argo CD 里显示 Paused/Suspended)。
+- 若真 Degraded:多半是新版 `/healthz` 探针不过(镜像跑不起来 / 端口不对),`kubectl logs` 看容器。
+
+### 坑 12:去掉了 overlay 的 namePrefix
+Rollout 的 `activeService/previewService` 是**按名字引用 Service** 的,kustomize 的 `namePrefix` 不会改这些 CRD 字段,会导致引用错位。所以三个 overlay **移除了 namePrefix**,靠 namespace 隔离即可。
+
+---
+
 ## 日常使用速查
 
 | 操作 | 命令 |
@@ -174,5 +223,8 @@ kubectl create secret docker-registry ghcr-pull -n baor-demo-dev \
 | 晋升 test | `git switch test && git merge dev && git push` |
 | 晋升 prod | `git switch prod && git merge test && git push` → GitHub Actions 点 Approve |
 | 发布版本 | `git tag v1.2.3 && git push origin v1.2.3` |
-| 回滚 | 在 config 仓库 `git revert <deploy commit> && git push` |
+| 蓝绿 promote(prod) | `kubectl argo rollouts promote cicd-demo -n baor-demo-prod` |
+| 蓝绿回滚(prod) | `kubectl argo rollouts undo cicd-demo -n baor-demo-prod` |
+| GitOps 回滚 | 在 config 仓库 `git revert <deploy commit> && git push` |
 | 看部署状态 | `kubectl get applications -n argocd` |
+| 看蓝绿状态 | `kubectl argo rollouts get rollout cicd-demo -n baor-demo-<env>` |

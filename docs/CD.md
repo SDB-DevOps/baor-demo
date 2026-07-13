@@ -124,14 +124,59 @@ GitOps 的回滚就是**让 Git 回到上一个好状态**:
 
 ---
 
-## 7. 工作负载说明:为什么是 CronJob
+## 7. 渐进式发布:蓝绿部署(Argo Rollouts)
 
-本 demo 应用是**批处理型**(`python -m app.main` 打印后即退出)。用 Deployment 会
-`CrashLoopBackOff`,因此配置仓库的 [`manifests/base/cronjob.yaml`](../../baor-demo-config/manifests/base/cronjob.yaml) 用
-**CronJob** 定时运行,Argo CD 健康状态正常。
+> 工作负载已从早期的批处理 CronJob 改为**常驻 HTTP 服务**(`python -m app.server`,监听 `:8000`,
+> 带 `/healthz`)—— 蓝绿/金丝雀需要有流量可切,批处理没有流量。
 
-若要部署**常驻服务**,把 `base/cronjob.yaml` 换成 `Deployment` + `Service` 即可,overlay
-的 `namespace` / `images` / 镜像回写流程完全不变。
+蓝绿用 **Argo Rollouts** 实现:配置仓库里用 `Rollout` CRD 替换 Deployment,原生支持 blueGreen。
+
+### 7.1 原理
+
+新旧两版**全量并存**,先在 preview 入口验证新版(green),确认后**一次性把流量从蓝切到绿**,旧版保留一小段时间便于秒级回滚。
+
+```
+active Service  ──►  blue(旧版,v1)     ← 生产流量
+preview Service ──►  green(新版,v2)    ← 验证入口
+        │  promote(人工/自动)
+        ▼
+active Service  ──►  green(新版,v2)     blue 保留 60s 后缩容
+```
+
+### 7.2 关键对象与字段
+
+- [`base/rollout.yaml`](../../baor-demo-config/manifests/base/rollout.yaml):`kind: Rollout`,`strategy.blueGreen`:
+  - `activeService: cicd-demo-active`(正式流量)、`previewService: cicd-demo-preview`(预览新版)
+  - `autoPromotionEnabled`:是否自动切换
+  - `scaleDownDelaySeconds: 60`:旧版保留时间(回滚窗口)
+- [`base/services.yaml`](../../baor-demo-config/manifests/base/services.yaml):`active` / `preview` 两个 Service(Rollouts 自动注入 pod-hash 到 selector)
+
+### 7.3 环境分级(overlay 差异)
+
+| 环境 | `autoPromotionEnabled` | 行为 |
+|------|:---:|------|
+| `dev` / `test` | `true` | 新版就绪后**自动切换**(等价快速滚动) |
+| `prod` | `false` | 新版停在 preview,**人工 promote** 才切流量(真正的蓝绿门) |
+
+### 7.4 晋升与回滚(prod)
+
+```bash
+# 看蓝绿状态(哪个是 active、哪个在 preview 等待)
+kubectl argo rollouts get rollout cicd-demo -n baor-demo-prod --watch
+
+# 在 preview 上验证新版后,晋升(active 切到 green)
+kubectl argo rollouts promote cicd-demo -n baor-demo-prod
+
+# 回滚到上一版本
+kubectl argo rollouts undo cicd-demo -n baor-demo-prod
+# 或 GitOps 方式:配置仓库 git revert 那次 digest 变更并 push
+```
+
+### 7.5 进阶:自动晋升
+
+给 `strategy.blueGreen` 加 `prePromotionAnalysis`,用 `AnalysisTemplate`(查 Prometheus 的成功率/延迟)在切换前自动判定,达标才 promote、不达标自动放弃。金丝雀(按权重渐进 + 自动分析)是下一步演进方向。
+
+> 集群需先安装 Argo Rollouts 控制器,见 [CD-RUNBOOK.md](./CD-RUNBOOK.md)。
 
 ---
 

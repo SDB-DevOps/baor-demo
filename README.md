@@ -23,9 +23,11 @@
 │   └── main.yml               #   push main / tag v* → CI / 发布版本镜像
 ├── src/app/                   # 应用代码
 │   ├── calculator.py          #   业务逻辑(加/减/除)
-│   └── main.py                #   入口 main()
+│   ├── server.py              #   常驻 HTTP 服务(容器入口,蓝绿/金丝雀用)
+│   └── main.py                #   批处理示例(保留作测试)
 ├── tests/                     # 单元测试
 │   ├── test_calculator.py
+│   ├── test_server.py
 │   └── test_main.py
 ├── docs/                      # 架构 / 分支 / CD / 接入文档
 ├── Dockerfile                 # 多阶段构建镜像(非 root 运行)
@@ -47,12 +49,16 @@ mypy src              # 类型检查
 # 测试(带覆盖率,阈值 80%)
 pytest
 
-# 运行程序
+# 运行 HTTP 服务(容器入口)
+python -m app.server            # 监听 :8000
+# 另开一个终端:curl http://localhost:8000/healthz  /  /add?a=2&b=3
+
+# 运行批处理示例
 python -m app.main
 
 # 构建并运行镜像
 docker build -t cicd-demo .
-docker run --rm cicd-demo
+docker run --rm -p 8000:8000 cicd-demo
 ```
 
 ## CI/CD 架构

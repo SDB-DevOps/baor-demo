@@ -30,8 +30,11 @@ RUN rm -rf /usr/local/lib/python3.11/site-packages/pip* \
            /usr/local/bin/pip*
 
 ENV PYTHONPATH=/home/appuser/src \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
 
 USER appuser
 
-CMD ["python", "-m", "app.main"]
+# Long-running HTTP service (entrypoint for progressive delivery / blue-green).
+EXPOSE 8000
+CMD ["python", "-m", "app.server"]
