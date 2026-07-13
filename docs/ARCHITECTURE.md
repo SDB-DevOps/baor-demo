@@ -43,7 +43,8 @@ CICD_Demo_repo/
 ├── src/app/                    # 应用源码
 │   ├── __init__.py
 │   ├── calculator.py           #   业务逻辑(加/减/除)
-│   └── main.py                 #   入口 main()
+│   ├── server.py               #   常驻 HTTP 服务(容器入口,蓝绿/金丝雀用)
+│   └── main.py                 #   批处理示例(保留作测试)
 ├── tests/                      # 单元测试
 │   ├── test_calculator.py
 │   └── test_main.py
@@ -68,13 +69,13 @@ CICD_Demo_repo/
 结构极简,分层清晰:
 
 ```
-main.py  ──调用──>  calculator.py
- (入口)              (纯函数业务逻辑)
+server.py ──调用──> calculator.py <──调用── main.py
+ (HTTP 服务)         (纯函数业务逻辑)      (批处理示例)
 ```
 
 - [calculator.py](../src/app/calculator.py):纯函数 `add / subtract / divide`,无副作用、易测试。
-- [main.py](../src/app/main.py):程序入口,调用业务逻辑并打印结果。容器启动即执行 `python -m app.main`。
-- 属于**批处理型**程序(跑完即退出),而非常驻服务。
+- [server.py](../src/app/server.py):**常驻 HTTP 服务**(标准库 `http.server`,零依赖),监听 `:8000`,提供 `/healthz` 探针与 `/add`、`/subtract`、`/divide` 端点。**容器入口** `python -m app.server`。渐进式发布(蓝绿/金丝雀)需要有流量可切,故用常驻服务而非批处理。
+- [main.py](../src/app/main.py):早期的批处理入口(跑完即退),保留作示例与测试;不再是容器入口。
 
 ---
 
@@ -95,7 +96,7 @@ main.py  ──调用──>  calculator.py
 │ COPY --from=builder  site-packages + src             │
 │ 删除 pip/setuptools/wheel(消除 CVE、瘦身)            │
 │ USER appuser                                          │
-│ CMD ["python", "-m", "app.main"]                     │
+│ EXPOSE 8000 / CMD ["python","-m","app.server"]       │
 └──────────────────────────────────────────────────────┘
 ```
 
