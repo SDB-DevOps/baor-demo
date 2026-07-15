@@ -12,10 +12,14 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pip-audit>=2.7",
+    # Force the fixed setuptools into the CI env so pip-audit stays clean
+    # (PYSEC-2026-3447 affects setuptools < 83.0.0). It's a build-time tool only —
+    # the runtime image drops it entirely (see Dockerfile).
+    "setuptools>=83.0.0",
 ]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
