@@ -174,9 +174,16 @@ kubectl argo rollouts undo cicd-demo -n baor-demo-prod
 
 ### 7.5 进阶:自动晋升
 
-给 `strategy.blueGreen` 加 `prePromotionAnalysis`,用 `AnalysisTemplate`(查 Prometheus 的成功率/延迟)在切换前自动判定,达标才 promote、不达标自动放弃。金丝雀(按权重渐进 + 自动分析)是下一步演进方向。
+给 `strategy.blueGreen` 加 `prePromotionAnalysis`,用 `AnalysisTemplate`(查 Prometheus 的成功率/延迟)在切换前自动判定,达标才 promote、不达标自动放弃。
 
-> 集群需先安装 Argo Rollouts 控制器,见 [CD-RUNBOOK.md](./CD-RUNBOOK.md)。
+### 7.6 金丝雀(与蓝绿可选)
+
+金丝雀(按权重渐进 20%→50%→100% + 精确流量切分)已作为可选策略实现。两种策略做成 Kustomize Components,每个环境改一行 `components:` 即可切换。默认:dev/test 金丝雀,prod 蓝绿。
+
+- 策略选择/切换机制见 [RELEASE-STRATEGIES.md](./RELEASE-STRATEGIES.md)
+- 金丝雀操作手册见 [CANARY.md](./CANARY.md);蓝绿见 [BLUE-GREEN.md](./BLUE-GREEN.md)
+
+> 集群需先安装 Argo Rollouts 控制器(金丝雀精确流量还需 ingress-nginx),见 [CD-RUNBOOK.md](./CD-RUNBOOK.md) 与 [CANARY.md](./CANARY.md)。
 
 ---
 
