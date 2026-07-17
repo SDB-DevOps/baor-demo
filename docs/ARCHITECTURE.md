@@ -4,7 +4,8 @@
 
 - 应用侧文档见 [README.md](../README.md)
 - 分支模型与多环境流水线见 [BRANCHING.md](./BRANCHING.md)
-- CD 流程(Argo CD + GitOps)见 [CD.md](./CD.md)
+- CD 流程(Argo CD + GitOps)见 [CD.md](./CD.md),从零跑通的实操 + 踩坑见 [CD-RUNBOOK.md](./CD-RUNBOOK.md)
+- 发布策略(蓝绿/金丝雀可选)见 [RELEASE-STRATEGIES.md](./RELEASE-STRATEGIES.md);操作手册:[BLUE-GREEN.md](./BLUE-GREEN.md) / [CANARY.md](./CANARY.md)
 - 首次接入 GitHub 的操作步骤见 [SETUP.md](./SETUP.md)
 
 ---
