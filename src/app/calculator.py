@@ -12,6 +12,7 @@ def add(a: float, b: float) -> float:
 def subtract(a: float, b: float) -> float:
     """Return the difference of two numbers."""
     print(a - b)
+    print("test for canary")
     return a - b
 
 
