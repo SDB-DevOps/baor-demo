@@ -125,6 +125,144 @@ kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller
 ### A3. 确认镜像可拉取
 GHCR 包设 **Public**,或给命名空间配 `imagePullSecrets`(见 [CD-RUNBOOK.md](./CD-RUNBOOK.md) 坑 9)。
 
+## ▶ 完整实操:单独执行一次金丝雀发布(step-by-step + 验证/观察)
+
+本节是一次**从零到完成**的金丝雀发布全过程,每一步都给出**验证成功的方法**与**状态监控命令**。以 dev 为例,namespace `baor-demo-dev`、Rollout `cicd-demo`、Service `cicd-demo-canary`/`cicd-demo-stable`、Ingress `cicd-demo`。其它环境把 `-n baor-demo-<env>` 换掉即可。
+
+### 步骤 0:环境自检(缺一不可)
+
+```bash
+# 每个新终端都要设(Windows: $env:KUBECONFIG="...\k3s.yaml")
+export KUBECONFIG=/path/to/k3s.yaml
+kubectl get nodes                                  # 节点 Ready
+kubectl get pods -n argo-rollouts                  # Rollouts 控制器 Running
+kubectl get pods -n ingress-nginx                  # 金丝雀精确流量必需
+kubectl argo rollouts version                      # kubectl 插件已装
+kubectl get rollout cicd-demo -n baor-demo-dev     # 当前 Rollout 存在
+```
+✅ **验证通过**:上面每条都有正常输出、无报错。任一缺失见 §A 或 §E 排错。
+
+### 步骤 1:确认金丝雀策略(要发布成什么样)
+
+查看当前生效的步进/权重(config 仓库):
+```bash
+cd baor-demo-config
+kubectl kustomize manifests/overlays/dev | grep -A15 "canary:"
+```
+✅ **验证**:能看到 `canaryService/stableService`、`trafficRouting.nginx`、`steps`(如 20→50→100)。要调整就改 `manifests/components/canary/strategy.yaml` 后 `git commit && git push`(改组件会同时影响 dev 和 test)。
+
+### 步骤 2:触发一轮金丝雀发布
+
+二选一:
+
+- **A. 走完整 CI(真实路径)**:改代码 → push `dev` → CI 构建新镜像 → bump 回写新 digest。
+  ```bash
+  cd baor-demo && git switch dev && git commit -am "feat: xxx" && git push
+  ```
+- **B. 纯配置改版本号(最快演示)**:改 `overlays/dev` 的 `APP_VERSION`(如 `dev`→`dev-v2`)→ push config 仓库。
+
+✅ **验证已触发**:
+```bash
+# config 仓库出现新的 deploy 提交 / APP_VERSION 变更已 push
+git log origin/main --oneline -1
+# Argo 已拉到新版本(REV = 刚 push 的 commit)
+kubectl get application cicd-demo-dev -n argocd \
+  -o custom-columns=SYNC:.status.sync.status,HEALTH:.status.health.status,REV:.status.sync.revision
+```
+若 `OutOfSync` 迟迟不动:`kubectl -n argocd annotate application cicd-demo-dev argocd.argoproj.io/refresh=hard --overwrite`。
+
+### 步骤 3:实时观察金丝雀渐进(核心监控)
+
+**主监控窗口**(保持开着):
+```bash
+kubectl argo rollouts get rollout cicd-demo -n baor-demo-dev --watch
+```
+盯这几项:
+- `Status`:`◌ Progressing` → 每步 `॥ Paused`(定时/人工)→ 最终 `✔ Healthy`
+- `Actual Weight` / `Setpoint`:随步骤从 20 → 50 → 100 爬升
+- 两个 ReplicaSet:`revision:N (canary)` 与 `(stable)` 的副本数变化
+- `Steps` 区高亮当前第几步
+
+**脚本化单值状态**(适合等待/判断):
+```bash
+kubectl argo rollouts status cicd-demo -n baor-demo-dev
+# 输出 Progressing / Paused / Healthy / Degraded,阻塞到稳定态
+```
+
+### 步骤 4:验证"权重真的按比例切了"
+
+**① nginx 实际权重**(Rollouts 自动维护的 canary Ingress):
+```bash
+kubectl get ingress -n baor-demo-dev                       # 应见 cicd-demo 与 cicd-demo-canary 两个
+kubectl get ingress cicd-demo-canary -n baor-demo-dev \
+  -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-weight}{"\n"}'
+```
+✅ 输出应等于当前步权重(如 `20`)。
+
+**② 真实流量分布**(打多次看新旧版本比例):
+```bash
+INGRESS=<ingress入口地址>     # 如 nginx 的 NodePort/LoadBalancer 地址
+for i in $(seq 1 20); do
+  curl -s -H "Host: cicd-demo.local" http://$INGRESS/healthz | grep -o '"version":"[^"]*"'
+done | sort | uniq -c
+```
+✅ 新旧版本出现次数比 ≈ 当前 canary 权重(如约 20% 命中新版)。
+
+**③ Pod 层面**(另开窗口):
+```bash
+kubectl get pods -n baor-demo-dev -l app=cicd-demo -w      # canary/stable 两组 Pod 均 Running
+```
+
+### 步骤 5:遇到"暂停"步的放行(仅当用了 `pause: {}`)
+
+```bash
+kubectl argo rollouts get rollout cicd-demo -n baor-demo-dev   # Status: ॥ Paused
+kubectl argo rollouts promote cicd-demo -n baor-demo-dev        # 放行到下一步
+# kubectl argo rollouts promote cicd-demo -n baor-demo-dev --full  # 直接跳到 100%
+```
+✅ **验证**:promote 后 `--watch` 里权重继续上升。
+
+### 步骤 6:确认发布完成
+
+```bash
+kubectl argo rollouts status cicd-demo -n baor-demo-dev            # → Healthy
+kubectl argo rollouts get rollout cicd-demo -n baor-demo-dev       # 权重 100,canary 缩容,stable=新版
+kubectl logs -n baor-demo-dev -l app=cicd-demo --tail=3            # version = 新版本
+```
+✅ **成功标志**:Status `Healthy`、权重 100%、`/healthz` 全部返回新 version。
+
+### 步骤 7:异常处理(中止 / 回滚)
+
+```bash
+# 渐进中发现问题 → 中止,流量退回 stable(零影响)
+kubectl argo rollouts abort cicd-demo -n baor-demo-dev
+
+# 已完成后要回退 → 回滚上一版
+kubectl argo rollouts undo cicd-demo -n baor-demo-dev
+# 或 GitOps(可审计):config 仓库 git revert 那次 deploy 提交并 push
+```
+✅ **验证**:`--watch` 显示权重归 0 / 回到旧版本,`/healthz` version 恢复。
+
+### 图形化观察(可选,比 CLI 直观)
+
+```bash
+kubectl argo rollouts dashboard          # 本地 3100 端口,浏览器看 Rollout 步骤/权重
+# 或 Argo CD UI:kubectl port-forward svc/argocd-server -n argocd 8080:443
+```
+
+### 本节命令速查
+
+| 目的 | 命令 |
+|------|------|
+| 全景监控(步骤/权重/RS/暂停) | `kubectl argo rollouts get rollout cicd-demo -n baor-demo-dev --watch` |
+| 单值状态(脚本用) | `kubectl argo rollouts status cicd-demo -n baor-demo-dev` |
+| Argo 是否同步到新版本 | `kubectl get application cicd-demo-dev -n argocd` |
+| nginx 实际权重 | `kubectl get ingress cicd-demo-canary -n baor-demo-dev -o jsonpath='{...canary-weight}'` |
+| 真实流量比例 | `curl` 循环统计 version |
+| 放行/中止/回滚 | `promote` / `abort` / `undo` |
+
+---
+
 ## B. 发布流程(按环境分场景)
 
 ### 场景一:dev 环境(金丝雀自动渐进,开发自测)
